@@ -16,3 +16,5 @@ __pycache__/
 
 # Environment variables
 .env
+
+info_for_me.txt
