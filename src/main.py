@@ -1,9 +1,8 @@
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal
-from src.predict import predict_sentiment
-
+from src.predict import predict_sentiment 
 
 #create FastAPI application
 app = FastAPI(title="ReviewSense API",description="An API for predicting sentiment in movie reviews.",
@@ -11,13 +10,29 @@ app = FastAPI(title="ReviewSense API",description="An API for predicting sentime
 )
 
 #define the expected input structure
+
 class ReviewRequest(BaseModel):
     review: str = Field(
         ...,
-        min_length=1,
+        min_length=3,
         max_length=10000,
         description="Movie review text to analyze"
     )
+
+    @field_validator("review")
+    @classmethod
+    def validate_review(cls, value):
+
+        # Remove leading and trailing whitespace
+        value = value.strip()
+
+        # Check whether the review contains alphabetic characters
+        if not any(char.isalpha() for char in value):
+            raise ValueError(
+                "Review must contain alphabetic characters."
+            )
+
+        return value
 
 
 #define the expected output structure
