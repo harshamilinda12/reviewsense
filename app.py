@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 
 # --------------------------------------------------
-# Page setup
+# Page configuration
 # --------------------------------------------------
 
 st.set_page_config(
@@ -14,6 +14,8 @@ st.set_page_config(
 )
 
 API_URL = "http://127.0.0.1:8000/predict"
+MAX_HISTORY = 10
+CLOSE_CALL_THRESHOLD = 0.65
 
 EXAMPLE_REVIEWS = {
     "positive": (
@@ -30,8 +32,9 @@ EXAMPLE_REVIEWS = {
     ),
 }
 
+
 # --------------------------------------------------
-# Session state and callbacks
+# Session state
 # --------------------------------------------------
 
 if "review_input" not in st.session_state:
@@ -44,26 +47,37 @@ if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = []
 
 
-def load_example(kind: str) -> None:
+# --------------------------------------------------
+# Helper functions
+# --------------------------------------------------
+
+def load_example(kind):
     st.session_state.review_input = EXAMPLE_REVIEWS[kind]
     st.session_state.latest_prediction = None
 
 
-def clear_review() -> None:
+def clear_review():
     st.session_state.review_input = ""
     st.session_state.latest_prediction = None
 
 
-def reset_prediction() -> None:
+def reset_prediction():
     st.session_state.latest_prediction = None
 
 
-def clear_history() -> None:
+def clear_history():
     st.session_state.prediction_history = []
 
 
+def is_close_call(probabilities):
+    return (
+        max(float(score) for score in probabilities.values())
+        < CLOSE_CALL_THRESHOLD
+    )
+
+
 # --------------------------------------------------
-# Styling
+# Custom CSS
 # --------------------------------------------------
 
 st.markdown(
@@ -254,6 +268,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # --------------------------------------------------
 # Header
 # --------------------------------------------------
@@ -272,13 +287,15 @@ st.markdown(
 
 st.divider()
 
+
 # --------------------------------------------------
-# Review input and information card
+# Review input
 # --------------------------------------------------
 
 left_col, right_col = st.columns([1.7, 1], gap="large")
 
 with left_col:
+
     st.markdown(
         '<div class="section-label">ANALYZE A REVIEW</div>',
         unsafe_allow_html=True,
@@ -287,31 +304,18 @@ with left_col:
     st.subheader("What's your take on the movie?")
     st.caption("Try an example review")
 
-    example_col1, example_col2, example_col3 = st.columns(3)
+    example_cols = st.columns(3)
 
-    with example_col1:
-        st.button(
-            "Positive",
-            on_click=load_example,
-            args=("positive",),
-            use_container_width=True,
-        )
-
-    with example_col2:
-        st.button(
-            "Negative",
-            on_click=load_example,
-            args=("negative",),
-            use_container_width=True,
-        )
-
-    with example_col3:
-        st.button(
-            "Mixed",
-            on_click=load_example,
-            args=("mixed",),
-            use_container_width=True,
-        )
+    for column, kind in zip(
+        example_cols, ("positive", "negative", "mixed")
+    ):
+        with column:
+            st.button(
+                kind.title(),
+                on_click=load_example,
+                args=(kind,),
+                use_container_width=True,
+            )
 
     review = st.text_area(
         "Your movie review",
@@ -323,7 +327,7 @@ with left_col:
     )
 
     st.caption(
-        "Enter a review or use an example to analyse its sentiment."
+        "For best results, enter an English-language movie review."
     )
 
     analyse_col, clear_col = st.columns([3, 1])
@@ -343,13 +347,17 @@ with left_col:
         )
 
 
+# --------------------------------------------------
+# How ReviewSense Works
+# --------------------------------------------------
+
 with right_col:
-    # Keep HTML unindented inside the string.
+
     st.markdown(
         """
 <div class="info-card">
     <h3>How ReviewSense Works</h3>
-    <p>From your movie review to a sentiment prediction in four simple steps.</p>
+    <p>From a movie review to a sentiment prediction in four steps.</p>
     <div class="pipeline-step">
         📝 <strong>Write a review</strong>
     </div>
@@ -363,7 +371,7 @@ with right_col:
     </div>
     <div class="pipeline-step">
         📊 <strong>View your results</strong>
-        <div class="step-description">Explore the prediction scores.</div>
+        <div class="step-description">See the prediction and probability scores.</div>
     </div>
 </div>
 """,
@@ -372,12 +380,11 @@ with right_col:
 
 
 # --------------------------------------------------
-# Request prediction from FastAPI
+# FastAPI prediction request
 # --------------------------------------------------
 
 if analyse_button:
 
-    # Hide previous results if the new request fails.
     st.session_state.latest_prediction = None
 
     if not review.strip():
@@ -386,6 +393,7 @@ if analyse_button:
     else:
         try:
             with st.spinner("Analysing your review..."):
+
                 response = requests.post(
                     API_URL,
                     json={"review": review},
@@ -393,6 +401,7 @@ if analyse_button:
                 )
 
             if response.status_code == 200:
+
                 api_result = response.json()
 
                 prediction = {
@@ -401,39 +410,30 @@ if analyse_button:
                     "probabilities": api_result["probabilities"],
                 }
 
-                # Save the most recent prediction
                 st.session_state.latest_prediction = prediction
 
-                # Add the prediction to history
                 st.session_state.prediction_history.insert(
                     0, prediction
                 )
 
-                # Keep only the 10 most recent predictions
                 st.session_state.prediction_history = (
-                    st.session_state.prediction_history[:10]
+                    st.session_state.prediction_history[:MAX_HISTORY]
                 )
 
-            elif response.status_code == 422:
-                details = response.json().get(
+            elif response.status_code in (400, 422):
+
+                detail = response.json().get(
                     "detail", "Invalid review."
                 )
 
-                if isinstance(details, list):
-                    details = (
-                        details[0].get("msg", "Invalid review.")
-                        if details
+                if isinstance(detail, list):
+                    detail = (
+                        detail[0].get("msg", "Invalid review.")
+                        if detail
                         else "Invalid review."
                     )
 
-                st.warning(str(details))
-
-            elif response.status_code == 400:
-                details = response.json().get(
-                    "detail", "Invalid review."
-                )
-
-                st.warning(str(details))
+                st.warning(str(detail))
 
             else:
                 st.error(
@@ -441,27 +441,31 @@ if analyse_button:
                 )
 
         except requests.exceptions.ConnectionError:
+
             st.error(
-                "Cannot connect to the ReviewSense API. "
-                "Make sure the FastAPI backend is running."
+                "Cannot connect to the API. "
+                "Make sure FastAPI is running."
             )
 
         except requests.exceptions.Timeout:
+
             st.error(
                 "The request timed out. Please try again."
             )
 
         except requests.exceptions.RequestException as error:
+
             st.error(f"Request failed: {error}")
 
         except (ValueError, KeyError, TypeError):
+
             st.error(
                 "The API returned an unexpected response format."
             )
 
 
 # --------------------------------------------------
-# Latest prediction results
+# Prediction results
 # --------------------------------------------------
 
 result = st.session_state.latest_prediction
@@ -474,6 +478,8 @@ if result is not None:
     positive_score = float(probabilities["positive"]) * 100
     negative_score = float(probabilities["negative"]) * 100
 
+    close_call = is_close_call(probabilities)
+
     st.divider()
 
     st.markdown(
@@ -484,17 +490,19 @@ if result is not None:
     st.subheader("Sentiment Analysis")
 
     if sentiment == "positive":
+
         label = "Positive Sentiment"
         emoji = "😊"
         description = (
-            "This review expresses predominantly positive sentiment."
+            "The model leans toward positive sentiment."
         )
 
     else:
+
         label = "Negative Sentiment"
         emoji = "😞"
         description = (
-            "This review expresses predominantly negative sentiment."
+            "The model leans toward negative sentiment."
         )
 
     st.markdown(
@@ -508,47 +516,74 @@ if result is not None:
         unsafe_allow_html=True,
     )
 
-    # Probability score cards
-    score_col1, score_col2 = st.columns(2, gap="medium")
+    # ----------------------------------------------
+    # Uncertainty information
+    # ----------------------------------------------
 
-    with score_col1:
-        st.markdown(
-            f"""
+    if close_call:
+
+        st.info(
+            "**Close-call prediction:** The model's positive and "
+            "negative scores are relatively close. This may happen "
+            "with mixed or ambiguous reviews. Treat the predicted "
+            "label cautiously."
+        )
+
+    else:
+
+        st.caption(
+            "The model shows a clearer preference for one sentiment, "
+            "but it can still make mistakes."
+        )
+
+    # ----------------------------------------------
+    # Probability cards
+    # ----------------------------------------------
+
+    score_col1, score_col2 = st.columns(
+        2, gap="medium"
+    )
+
+    for column, name, score, css_class, icon in (
+        (
+            score_col1,
+            "Positive",
+            positive_score,
+            "positive",
+            "😊",
+        ),
+        (
+            score_col2,
+            "Negative",
+            negative_score,
+            "negative",
+            "😞",
+        ),
+    ):
+
+        with column:
+
+            st.markdown(
+                f"""
 <div class="score-card">
     <div class="score-header">
-        <span>😊 Positive</span>
-        <span class="score-value">{positive_score:.2f}%</span>
+        <span>{icon} {name}</span>
+        <span class="score-value">{score:.2f}%</span>
     </div>
     <div class="score-track">
-        <div class="score-fill positive"
-             style="width: {positive_score:.2f}%"></div>
+        <div class="score-fill {css_class}"
+             style="width: {score:.2f}%"></div>
     </div>
 </div>
 """,
-            unsafe_allow_html=True,
-        )
-
-    with score_col2:
-        st.markdown(
-            f"""
-<div class="score-card">
-    <div class="score-header">
-        <span>😞 Negative</span>
-        <span class="score-value">{negative_score:.2f}%</span>
-    </div>
-    <div class="score-track">
-        <div class="score-fill negative"
-             style="width: {negative_score:.2f}%"></div>
-    </div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
+                unsafe_allow_html=True,
+            )
 
     st.caption(
-        "These are model probability estimates, not guarantees "
-        "of prediction correctness. ReviewSense currently predicts "
-        "only positive or negative sentiment."
+        "These scores are model estimates, not guarantees of "
+        "correctness. A close call is not a neutral sentiment "
+        "prediction: the current model has only positive "
+        "and negative classes."
     )
 
 
@@ -563,7 +598,7 @@ if st.session_state.prediction_history:
     st.subheader("Recent Analyses")
 
     st.caption(
-        "Your 10 most recent predictions in this session."
+        "Up to 10 predictions stored for this Streamlit session."
     )
 
     for item in st.session_state.prediction_history:
@@ -572,7 +607,6 @@ if st.session_state.prediction_history:
         history_probabilities = item["probabilities"]
         history_review = item["review"]
 
-        # Create a shorter review preview
         preview = history_review[:65]
 
         if len(history_review) > 65:
@@ -592,18 +626,21 @@ if st.session_state.prediction_history:
             st.write("**Review**")
             st.write(history_review)
 
+            if is_close_call(history_probabilities):
+                st.caption("Close-call prediction")
+
             history_col1, history_col2 = st.columns(2)
 
             with history_col1:
                 st.metric(
                     "Positive",
-                    f"{history_probabilities['positive'] * 100:.2f}%",
+                    f"{float(history_probabilities['positive']) * 100:.2f}%",
                 )
 
             with history_col2:
                 st.metric(
                     "Negative",
-                    f"{history_probabilities['negative'] * 100:.2f}%",
+                    f"{float(history_probabilities['negative']) * 100:.2f}%",
                 )
 
     st.button(
