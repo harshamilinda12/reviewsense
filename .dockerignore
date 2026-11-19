@@ -1,0 +1,16 @@
+
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.ipynb_checkpoints/
+notebooks/
+data/
+tests/
+*.ipynb
+*.log
+.env
+info_for_me.txt

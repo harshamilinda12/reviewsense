@@ -1,6 +1,7 @@
 
 import requests
 import streamlit as st
+import os
 
 # --------------------------------------------------
 # Page configuration
@@ -13,7 +14,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-API_URL = "http://127.0.0.1:8000/predict"
+API_URL = os.getenv(
+    "API_URL",
+    "http://127.0.0.1:8000/predict"
+)
 MAX_HISTORY = 10
 CLOSE_CALL_THRESHOLD = 0.65
 
