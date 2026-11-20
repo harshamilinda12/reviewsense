@@ -3,18 +3,26 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
+# Configure Python
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV HOME=/home/appuser
 
 # Install frontend dependencies
 COPY requirements-frontend.txt .
 
 RUN python -m pip install --no-cache-dir -r requirements-frontend.txt
 
-# Copy Streamlit application
-COPY app.py .
+# Create a non-root user
+RUN groupadd -g 10001 appgroup && \
+    useradd -m -u 10001 -g appgroup appuser
 
-# Document Streamlit's port
+# Copy frontend application
+COPY --chown=appuser:appgroup app.py .
+
+# Switch to non-root user
+USER appuser
+
 EXPOSE 8501
 
 # Start Streamlit

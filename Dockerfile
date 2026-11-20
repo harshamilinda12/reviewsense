@@ -1,28 +1,31 @@
 
-# 1. Start with an official Python image
 FROM python:3.13-slim
 
-# 2. Set the working directory inside the container
 WORKDIR /app
 
-# 3. Configure Python for container execution
+# Configure Python
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# 4. Copy dependency requirements
+# Install dependencies
 COPY requirements-api.txt .
 
-# 5. Install Python dependencies
 RUN python -m pip install --no-cache-dir -r requirements-api.txt
 
-# 6. Copy the backend application
-COPY src/ ./src/
+# Create a non-root user
+RUN groupadd -g 10001 appgroup && \
+    useradd -m -u 10001 -g appgroup appuser
 
-# 7. Copy the trained model
-COPY models/ ./models/
+# Copy application code
+COPY --chown=appuser:appgroup src/ ./src/
 
-# 8. Document the API port
+# Copy trained model
+COPY --chown=appuser:appgroup models/ ./models/
+
+# Switch to non-root user
+USER appuser
+
 EXPOSE 8000
 
-# 9. Start the FastAPI server
+# Start FastAPI
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
